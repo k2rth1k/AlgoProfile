@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, ItemFn, parse::Parse, parse::ParseStream, Token, Lit};
+use syn::{parse::Parse, parse::ParseStream, parse_macro_input, DeriveInput, ItemFn, Lit, Token};
 
 /// Example derive macro that implements a Display trait for structs
 #[proc_macro_derive(AlgoDebug)]
@@ -189,10 +189,7 @@ pub fn profile_algorithm(attr: TokenStream, item: TokenStream) -> TokenStream {
     let fn_sig = &input.sig;
 
     // Generate profiler function name
-    let profiler_name = syn::Ident::new(
-        &format!("profile_{}", fn_name),
-        fn_name.span()
-    );
+    let profiler_name = syn::Ident::new(&format!("profile_{}", fn_name), fn_name.span());
 
     let sizes = &attrs.sizes;
     let iterations = attrs.iterations;
