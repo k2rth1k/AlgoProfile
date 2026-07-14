@@ -1,10 +1,16 @@
 mod algorithms;
+mod cli;
 
 use algoprofile_macros::{timed, AlgoDebug};
-use algorithms::two_sum::algo::{
-    algo, profile_algo_gradual,
-};
+use algorithms::two_sum::algo::{algo, profile_algo_gradual};
+
 // use textplots::{Chart, Plot, Shape}; // Not needed - using custom plotter
+use crate::cli::start_cli;
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
@@ -14,12 +20,8 @@ use ratatui::{
     widgets::{Axis, Block, Borders, Chart as RatatuiChart, Dataset, GraphType},
     Terminal,
 };
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use std::io;
+use std::path::Path;
+use std::{fs, io};
 
 // Example struct using the derive macro
 #[derive(AlgoDebug)]
@@ -42,7 +44,11 @@ fn generate_terminal_plot(data: &[(usize, std::time::Duration, usize)]) {
     let max_x = data.iter().map(|(size, _, _)| *size).max().unwrap_or(100) as f32;
 
     // Get max values for normalization
-    let max_time = data.iter().map(|(_, d, _)| d.as_micros()).max().unwrap_or(100) as f32;
+    let max_time = data
+        .iter()
+        .map(|(_, d, _)| d.as_micros())
+        .max()
+        .unwrap_or(100) as f32;
     let max_memory = data.iter().map(|(_, _, m)| *m).max().unwrap_or(100) as f32;
 
     // Normalize both to 0-100 scale
@@ -69,7 +75,10 @@ fn generate_terminal_plot(data: &[(usize, std::time::Duration, usize)]) {
     const RESET: &str = "\x1b[0m";
     const GRAY: &str = "\x1b[90m";
 
-    println!("\n{}Combined Plot - Both complexities overlaid:{}", YELLOW, RESET);
+    println!(
+        "\n{}Combined Plot - Both complexities overlaid:{}",
+        YELLOW, RESET
+    );
 
     // Custom ASCII plotter with color support
     let width = 120;
@@ -85,16 +94,23 @@ fn generate_terminal_plot(data: &[(usize, std::time::Duration, usize)]) {
     let mut grid: Vec<Vec<Option<(char, PlotColor)>>> = vec![vec![None; width]; height];
 
     // Helper function to plot a line with color
-    let plot_line = |grid: &mut Vec<Vec<Option<(char, PlotColor)>>>, points: &[(f32, f32)], color: PlotColor, marker: char| {
+    let plot_line = |grid: &mut Vec<Vec<Option<(char, PlotColor)>>>,
+                     points: &[(f32, f32)],
+                     color: PlotColor,
+                     marker: char| {
         for i in 0..points.len().saturating_sub(1) {
             let (x1, y1) = points[i];
             let (x2, y2) = points[i + 1];
 
             // Map to grid coordinates
             let grid_x1 = ((x1 / max_x) * width as f32).min((width - 1) as f32) as usize;
-            let grid_y1 = height.saturating_sub(1).saturating_sub(((y1 / 100.0) * height as f32) as usize);
+            let grid_y1 = height
+                .saturating_sub(1)
+                .saturating_sub(((y1 / 100.0) * height as f32) as usize);
             let grid_x2 = ((x2 / max_x) * width as f32).min((width - 1) as f32) as usize;
-            let grid_y2 = height.saturating_sub(1).saturating_sub(((y2 / 100.0) * height as f32) as usize);
+            let grid_y2 = height
+                .saturating_sub(1)
+                .saturating_sub(((y2 / 100.0) * height as f32) as usize);
 
             // Draw line between points using Bresenham's algorithm
             let dx = (grid_x2 as i32 - grid_x1 as i32).abs();
@@ -154,16 +170,25 @@ fn generate_terminal_plot(data: &[(usize, std::time::Duration, usize)]) {
         print!("─");
     }
     println!("{}", RESET);
-    println!("        0{:>width$}", format!("{:.0}", max_x), width = width - 1);
+    println!(
+        "        0{:>width$}",
+        format!("{:.0}", max_x),
+        width = width - 1
+    );
 
     println!("\n📈 Legend:");
-    println!("   {}· Time Complexity{} - Normalized (max: {:.2}μs)", CYAN, RESET, max_time);
-    println!("   {}· Memory Complexity{} - Normalized (max: {} bytes)", GREEN, RESET, max_memory as usize);
+    println!(
+        "   {}· Time Complexity{} - Normalized (max: {:.2}μs)",
+        CYAN, RESET, max_time
+    );
+    println!(
+        "   {}· Memory Complexity{} - Normalized (max: {} bytes)",
+        GREEN, RESET, max_memory as usize
+    );
     println!("   Y-axis: Normalized scale (0-100%)");
     println!("\n💡 Both time and memory show O(n) linear complexity");
     println!("{}", "=".repeat(80));
 }
-
 
 struct InteractivePlotState {
     data: Vec<(usize, std::time::Duration, usize)>,
@@ -230,7 +255,9 @@ impl InteractivePlotState {
     }
 }
 
-fn generate_interactive_plot(data: Vec<(usize, std::time::Duration, usize)>) -> Result<(), Box<dyn std::error::Error>> {
+fn generate_interactive_plot(
+    data: Vec<(usize, std::time::Duration, usize)>,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -372,7 +399,7 @@ fn generate_interactive_plot(data: Vec<(usize, std::time::Duration, usize)>) -> 
     Ok(())
 }
 
-fn main() {
+fn launch() {
     println!("=== Procedural Macro Examples ===\n");
 
     // 1. Derive macro example
@@ -393,7 +420,6 @@ fn main() {
     println!("Regular algo call:");
     let result2 = algo(vec![3, 2, 4], 6);
     println!("Result: {:?}\n", result2);
-
 
     // 5. Profile with gradual range (1 to 100)
     println!("\n=== Algorithm Profiling: Gradual Range (1 to 100) ===\n");
@@ -419,5 +445,10 @@ fn main() {
             break;
         }
     }
+}
 
+
+
+fn main() {
+    start_cli();
 }
