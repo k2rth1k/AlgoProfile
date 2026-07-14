@@ -1,0 +1,10 @@
+[package]
+name = "algoprofile"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+algoprofile_macros = { path = "../algoprofile_macros" }
+textplots = "0.8"
+ratatui = "0.28"
+crossterm = "0.28"
