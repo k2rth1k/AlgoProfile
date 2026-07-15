@@ -1,43 +1,30 @@
-use std::collections::HashMap;
-use algoprofile_macros::profile_algorithm;
+pub mod two_sum {
+    use algoprofile_macros::{profile, AlgoInput};
+    use std::collections::HashMap;
 
-// Profile with explicit sizes
-#[profile_algorithm(sizes = [10, 100, 1000, 10000], iterations = 5)]
-pub fn algo(nums: Vec<i32>, target: i32) -> Vec<i32> {
-    let mut map: HashMap<i32, usize> = HashMap::new();
+    #[derive(AlgoInput, Clone)]
+    pub struct RegularArgs {
+        #[n_size(0, 100)]
+        #[element_range(-1000,1000)]
+        pub nums: Vec<i64>,
 
-    for (i, num) in nums.iter().enumerate() {
-        if let Some(&j) = map.get(&(target - num)) {
-            return vec![j as i32, i as i32];
-        }
-        map.insert(*num, i);
+        #[element_range(0, 100)]
+        pub target: i64,
     }
-    vec![]
-}
 
-// Profile with gradual range from 1 to 100
-#[profile_algorithm(range = (1, 100), iterations = 3)]
-pub fn algo_gradual(nums: Vec<i32>, target: i32) -> Vec<i32> {
-    let mut map: HashMap<i32, usize> = HashMap::new();
+    /*
+     uses hashmap
+    */
+    #[profile]
+    pub fn algo(args: RegularArgs) -> Vec<i64> {
+        let mut map: HashMap<i64, usize> = HashMap::new();
 
-    for (i, num) in nums.iter().enumerate() {
-        if let Some(&j) = map.get(&(target - num)) {
-            return vec![j as i32, i as i32];
+        for (i, num) in args.nums.iter().enumerate() {
+            if let Some(&j) = map.get(&(args.target - num)) {
+                return vec![j as i64, i as i64];
+            }
+            map.insert(*num, i);
         }
-        map.insert(*num, i);
+        vec![]
     }
-    vec![]
-}
-
-#[profile_algorithm(range = (1, 1000, 1), iterations = 5)]
-pub fn algo_custom_step(nums: Vec<i32>, target: i32) -> Vec<i32> {
-    let mut map: HashMap<i32, usize> = HashMap::new();
-
-    for (i, num) in nums.iter().enumerate() {
-        if let Some(&j) = map.get(&(target - num)) {
-            return vec![j as i32, i as i32];
-        }
-        map.insert(*num, i);
-    }
-    vec![]
 }

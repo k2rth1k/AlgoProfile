@@ -1,231 +1,143 @@
+mod utils;
+
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::{parse::Parse, parse::ParseStream, parse_macro_input, DeriveInput, ItemFn, Lit, Token};
+use quote::{format_ident, quote};
+use syn::{parse_macro_input, Data, DeriveInput, FnArg, ItemFn};
+use utils::value_extract::get_attribute_range;
 
-/// Example derive macro that implements a Display trait for structs
-#[proc_macro_derive(AlgoDebug)]
-pub fn algo_debug_derive(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(AlgoInput, attributes(n_size, element_range))]
+pub fn data_generation(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    let name = &input.ident;
+    let struct_name = &input.ident;
+    let mut min_n_range = 0;
+    let mut max_n_range = 100;
+    let mut field_setters = Vec::new();
 
-    let expanded = quote! {
-        impl std::fmt::Display for #name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "AlgoDebug: {}", stringify!(#name))
-            }
-        }
-    };
+    if let Data::Struct(data) = &input.data {
+        for field in &data.fields {
+            let field_name = field.ident.as_ref().unwrap();
 
-    TokenStream::from(expanded)
-}
+            let mut is_vector = false;
 
-/// Example attribute macro that adds timing instrumentation to functions
-#[proc_macro_attribute]
-pub fn timed(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(item as ItemFn);
-    let fn_name = &input.sig.ident;
-    let fn_block = &input.block;
-    let fn_vis = &input.vis;
-    let fn_sig = &input.sig;
-
-    let expanded = quote! {
-        #fn_vis #fn_sig {
-            let start = std::time::Instant::now();
-            let result = (|| #fn_block)();
-            let duration = start.elapsed();
-            println!("[TIMED] {} took {:?}", stringify!(#fn_name), duration);
-            result
-        }
-    };
-
-    TokenStream::from(expanded)
-}
-
-/// Example function-like macro that creates a benchmark helper
-#[proc_macro]
-pub fn benchmark(input: TokenStream) -> TokenStream {
-    let input_str = input.to_string();
-
-    let expanded = quote! {
-        {
-            let iterations = 1000;
-            let start = std::time::Instant::now();
-            for _ in 0..iterations {
-                #input_str
-            }
-            let duration = start.elapsed();
-            println!("Benchmark: {} iterations in {:?} (avg: {:?})",
-                iterations, duration, duration / iterations);
-        }
-    };
-
-    expanded.to_string().parse().unwrap()
-}
-
-// Attribute parser for profile_algorithm macro
-struct ProfileAttrs {
-    sizes: Vec<usize>,
-    iterations: u32,
-}
-
-impl Parse for ProfileAttrs {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut sizes = None;
-        let mut iterations = 5u32;
-        let mut range_start = None;
-        let mut range_end = None;
-        let mut range_step = None;
-
-        while !input.is_empty() {
-            let lookahead = input.lookahead1();
-
-            if lookahead.peek(syn::Ident) {
-                let ident: syn::Ident = input.parse()?;
-
-                if ident == "sizes" {
-                    input.parse::<Token![=]>()?;
-                    let content;
-                    syn::bracketed!(content in input);
-                    let mut size_vec = Vec::new();
-
-                    while !content.is_empty() {
-                        let lit: Lit = content.parse()?;
-                        if let Lit::Int(int_lit) = lit {
-                            size_vec.push(int_lit.base10_parse::<usize>()?);
-                        }
-                        if !content.is_empty() {
-                            content.parse::<Token![,]>()?;
-                        }
-                    }
-                    sizes = Some(size_vec);
-                } else if ident == "range" {
-                    input.parse::<Token![=]>()?;
-                    let content;
-                    syn::parenthesized!(content in input);
-
-                    // Parse start
-                    let lit: Lit = content.parse()?;
-                    if let Lit::Int(int_lit) = lit {
-                        range_start = Some(int_lit.base10_parse::<usize>()?);
-                    }
-                    content.parse::<Token![,]>()?;
-
-                    // Parse end
-                    let lit: Lit = content.parse()?;
-                    if let Lit::Int(int_lit) = lit {
-                        range_end = Some(int_lit.base10_parse::<usize>()?);
-                    }
-
-                    // Parse optional step
-                    if !content.is_empty() {
-                        content.parse::<Token![,]>()?;
-                        let lit: Lit = content.parse()?;
-                        if let Lit::Int(int_lit) = lit {
-                            range_step = Some(int_lit.base10_parse::<usize>()?);
-                        }
-                    }
-                } else if ident == "iterations" {
-                    input.parse::<Token![=]>()?;
-                    let lit: Lit = input.parse()?;
-                    if let Lit::Int(int_lit) = lit {
-                        iterations = int_lit.base10_parse::<u32>()?;
+            if let syn::Type::Path(type_path) = &field.ty {
+                if let Some(last_segment) = type_path.path.segments.last() {
+                    if last_segment.ident == "Vec" {
+                        is_vector = true;
                     }
                 }
             }
 
-            if !input.is_empty() {
-                input.parse::<Token![,]>()?;
-            }
-        }
+            let is_n_attr = field
+                .attrs
+                .iter()
+                .any(|attr| attr.path().is_ident("n_size"));
 
-        // If range is specified, generate sizes
-        let final_sizes = if let (Some(start), Some(end)) = (range_start, range_end) {
-            let step = range_step.unwrap_or_else(|| {
-                // Auto-calculate step to get ~20-30 data points
-                let diff = end - start;
-                if diff <= 30 {
-                    1
-                } else if diff <= 300 {
-                    10
-                } else if diff <= 3000 {
-                    100
+            let has_range_attr = field
+                .attrs
+                .iter()
+                .any(|attr| attr.path().is_ident("element_range"));
+
+            if is_n_attr {
+                let vals = get_attribute_range(field, "n_size");
+                min_n_range = vals.as_ref().unwrap()[0];
+                max_n_range = vals.as_ref().unwrap()[1];
+            }
+
+            if has_range_attr {
+                let vals = get_attribute_range(field, "element_range");
+                let min = vals.as_ref().unwrap()[0];
+                let max = vals.as_ref().unwrap()[1];
+
+                if is_vector {
+                    if is_n_attr {
+                        field_setters.push(quote! {
+                            #field_name: new_numeric_vector_with_size_and_range::<i64>(n_size as usize, #min, #max),
+                        });
+                    }
                 } else {
-                    1000
+                    field_setters.push(quote! {
+                        #field_name: random_numeric::<i64>(#min, #max),
+                    });
                 }
-            });
-
-            let mut generated = Vec::new();
-            let mut current = start;
-            while current <= end {
-                generated.push(current);
-                current += step;
             }
-            generated
-        } else {
-            sizes.unwrap_or_else(|| vec![10, 100, 500, 1000, 5000, 10000])
-        };
-
-        Ok(ProfileAttrs {
-            sizes: final_sizes,
-            iterations,
-        })
-    }
-}
-
-/// Attribute macro that profiles an algorithm with varying input sizes and generates plot data
-///
-/// Usage:
-/// - #[profile_algorithm(sizes = [10, 100, 1000, 10000], iterations = 10)]
-/// - #[profile_algorithm(range = (1, 100), iterations = 5)]
-/// - #[profile_algorithm(range = (1, 1000, 50))]  // start, end, step
-#[proc_macro_attribute]
-pub fn profile_algorithm(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(item as ItemFn);
-    let attrs = parse_macro_input!(attr as ProfileAttrs);
-
-    let fn_name = &input.sig.ident;
-    let fn_block = &input.block;
-    let fn_vis = &input.vis;
-    let fn_sig = &input.sig;
-
-    // Generate profiler function name
-    let profiler_name = syn::Ident::new(&format!("profile_{}", fn_name), fn_name.span());
-
-    let sizes = &attrs.sizes;
-    let iterations = attrs.iterations;
+        }
+    };
 
     let expanded = quote! {
-        // Keep the original function
-        #fn_vis #fn_sig #fn_block
+        impl #struct_name{
+            pub fn new_test_data( mut n_start: i64, mut n_end: i64, mut step_by :i64) -> Vec<#struct_name> {
+                use crate::data_generation::lib::utils::*;
+                let mut vec: Vec<#struct_name> = Vec::new();
 
-        // Generate profiler function
-        pub fn #profiler_name() -> Vec<(usize, std::time::Duration, usize)> {
-            let sizes = vec![#(#sizes),*];
-            let iterations = #iterations;
-            let mut results = Vec::new();
-
-            for size in sizes {
-                let mut total_duration = std::time::Duration::ZERO;
-
-                for _ in 0..iterations {
-                    // Generate test data
-                    let nums: Vec<i32> = (0..size).map(|i| i as i32).collect();
-                    let target = (size - 1) as i32;
-
-                    let start = std::time::Instant::now();
-                    let _ = #fn_name(nums, target);
-                    total_duration += start.elapsed();
+                if n_start==0 && n_end==0 && step_by==0 {
+                    n_start = #min_n_range;
+                    n_end = #max_n_range;
+                    step_by = 1;
                 }
 
-                let avg_duration = total_duration / iterations;
+                let mut n_size = n_start;
 
-                // Calculate memory usage (approximate)
-                // Input vector: size * size_of::<i32>()
-                // HashMap worst case: size * (size_of::<i32>() + size_of::<usize>())
-                let memory_bytes = size * std::mem::size_of::<i32>() +
-                                   size * (std::mem::size_of::<i32>() + std::mem::size_of::<usize>());
+                while n_size <= n_end {
+                        vec.push(#struct_name{
+                            #(#field_setters)*
+                        });
+                    n_size += step_by;
+                }
 
-                results.push((size, avg_duration, memory_bytes));
+                vec
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_attribute]
+pub fn profile(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input_fn = parse_macro_input!(item as ItemFn);
+
+    let fn_vis = &input_fn.vis;
+    let fn_name = &input_fn.sig.ident;
+    let fn_inputs = &input_fn.sig.inputs;
+    let fn_output = &input_fn.sig.output;
+    let fn_block = &input_fn.block;
+
+    let (_arg_name, arg_type) = match fn_inputs.first() {
+        Some(FnArg::Typed(pat_type)) => (&pat_type.pat, pat_type.ty.as_ref()),
+        _ => {
+            return syn::Error::new_spanned(
+                &input_fn.sig,
+                "#[profile] requires a function with exactly one typed argument",
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    let inner_fn_name = format_ident!("__{}_inner", fn_name);
+    let profile_fn_name = format_ident!("{}_profile", fn_name);
+
+    let expanded = quote! {
+        fn #inner_fn_name(#fn_inputs) #fn_output #fn_block
+
+        #fn_vis fn #profile_fn_name(
+            n_start: i64,
+            n_end: i64,
+            step_by: i64,
+        ) -> Vec<(i64, std::time::Duration)> {
+            let dataset = <#arg_type>::new_test_data(n_start, n_end, step_by);
+            let step = if step_by == 0 { 1 } else { step_by };
+
+            let mut results = Vec::with_capacity(dataset.len());
+            let mut n_size = n_start;
+
+            for args in dataset {
+                let __start = std::time::Instant::now();
+                let _ = #inner_fn_name(args);
+                let __elapsed = __start.elapsed();
+
+                results.push((n_size, __elapsed));
+                n_size += step;
             }
 
             results
