@@ -9,3 +9,4 @@ textplots = "0.8"
 ratatui = "0.28"
 crossterm = "0.28"
 clap = { version = "4.6.1", features = ["derive"] }
+rand = "0.10.2"
