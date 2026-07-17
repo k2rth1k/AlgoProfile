@@ -6,7 +6,8 @@ edition = "2021"
 [dependencies]
 algoprofile_macros = { path = "../algoprofile_macros" }
 textplots = "0.8"
-ratatui = "0.28"
-crossterm = "0.28"
+ratatui = "0.30.2"
+crossterm = "0.29.0"
 clap = { version = "4.6.1", features = ["derive"] }
 rand = "0.10.2"
+color-eyre = "0.6.5"
